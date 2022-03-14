@@ -483,12 +483,38 @@ abstract class Illegal_Command_Lint(
     else None
 }
 
-object Unfinished_Proof extends Illegal_Command_Lint(
-    "Consider finishing the proof.",
-    "unfinished_proof",
-    List("sorry", "\\<proof>"),
-    Severity.Error,
-    "This lint detects unfinished proofs, characterized by the following commands")
+object Unfinished_Proof extends Parser_Lint
+{
+  val name = "unfinished_proof"
+  val severity = Severity.Error
+
+  val short_description = Lint_Description.empty
+    .add("This lint detects unfinished proofs")
+  val long_description = short_description
+    .add(" characterized by the commands").inline_code("sorry").add(" and ")
+    .inline_code("\\<proof>").add(" or the use of ").inline_code("smt_oracle").add(".")
+
+  private def is_smt_oracle(attr: List[Elem]): Boolean =
+    attr.headOption.exists(_.info.content == "smt_oracle")
+
+  private def p_unfinished_proof_command(report: Reporter): Parser[Some[Lint_Result]] =
+    p_command("sorry", "\\<proof>") ^^ { elem =>
+      report("Consider finishing the proof", elem.range, None)
+    }
+
+  private def p_smt_oracle(report: Reporter): Parser[Some[Lint_Result]] =
+    p_command("declare") ~> p_sq_bracketed(p_sq_bracketed(
+      p_attributes >> {
+        _.find(is_smt_oracle) match {
+          case None => failure("no match")
+          case Some(tokens) =>
+            success(report("Do not use smt_oracle.", tokens.head.range, None))
+        }
+      }))
+
+  override def parser(report: Reporter): Parser[Some[Lint_Result]] =
+      p_smt_oracle(report) | p_unfinished_proof_command(report)
+}
 
 object Proof_Finder extends Illegal_Command_Lint(
     "Remove proof finder command.",
